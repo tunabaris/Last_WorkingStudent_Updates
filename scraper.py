@@ -72,6 +72,11 @@ def extract_job_details(page, url):
         except:
             location = "N/A"
             
+        if location == "N/A" and body_text:
+            match = re.search(r'Einsatzort:\s*\n\s*(.*)', body_text)
+            if match:
+                location = match.group(1).strip()
+            
         # 4. Departman (Department)
         try:
             dept_locator = page.locator('span.department, span:has-text("Department:")')
@@ -82,6 +87,11 @@ def extract_job_details(page, url):
                 department = "N/A"
         except:
             department = "N/A"
+            
+        if department == "N/A" and body_text:
+            match = re.search(r'Gesellschaft:\s*\n\s*(.*)', body_text)
+            if match:
+                department = match.group(1).strip()
             
         # 5. Dil Gereksinimi (Tüm sayfa metni üzerinden regex ile analiz)
         try:
@@ -120,84 +130,271 @@ def extract_job_details(page, url):
         print(f"Sayfa detayları çekilirken hata oluştu ({url}): {e}")
         return None
 
+def scrape_sap(browser):
+    page = browser.new_page()
+    base_url = "https://jobs.sap.com/search/?q=Working+student&optionsFacetsDD_country=DE&startrow={}&scrollToTable=true"
+    all_job_links = []
+    
+    print("\n--- SAP Adım 1: Arama sonuçlarındaki ilan linkleri toplanıyor ---")
+    for startrow in range(0, 76, 25): # 0, 25, 50, 75
+        url = base_url.format(startrow)
+        print(f"Sayfa taranıyor: {url}")
+        
+        try:
+            page.goto(url, wait_until='domcontentloaded', timeout=60000)
+            page.wait_for_timeout(5000) # İlanların Javascript ile DOM'a yerleşmesini bekle
+            links = page.locator('a.jobTitle-link').evaluate_all('elements => elements.map(e => e.href)')
+            if not links:
+                print("İlan bulunamadı.")
+            else:
+                all_job_links.extend(links)
+        except PlaywrightTimeoutError:
+            print(f"Sayfa yüklenirken zaman aşımı oldu: {url}")
+        except Exception as e:
+            print(f"Linkler toplanırken beklenmedik bir hata oluştu: {e}")
+            
+    all_job_links = list(set(all_job_links))
+    print(f"Toplam {len(all_job_links)} benzersiz SAP ilan linki bulundu.")
+    
+    print("\n--- SAP Adım 2: İlan detayları çekiliyor ve filtreleniyor ---")
+    filtered_jobs = []
+    
+    for i, link in enumerate(all_job_links, 1):
+        print(f"[{i}/{len(all_job_links)}] İnceleniyor...")
+        details = extract_job_details(page, link)
+        if not details:
+            continue
+        filtered_jobs.append(details)
+        print(f"  -> EKLENDİ: {details['title']} | Tarih: {details['date']}")
+        
+    filtered_jobs.sort(key=lambda x: parse_date(x['date']), reverse=True)
+            
+    print("\n--- SAP Adım 3: Sonuçlar CSV dosyasına kaydediliyor ---")
+    output_file = "ui/public/sap_filtered_jobs.csv"
+    try:
+        with open(output_file, "w", newline='', encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Job Title", "Date Posted", "Location", "Department", "Language Req", "Direct Link", "Status", "DeleteCounter"])
+            for job in filtered_jobs:
+                writer.writerow([
+                    job['title'], job['date'], job['location'], 
+                    job['department'], job['language'], job['link'],
+                    "Active", "0"
+                ])
+        print(f"İşlem başarıyla tamamlandı! Kriterlere uyan {len(filtered_jobs)} adet ilan '{output_file}' dosyasına kaydedildi.")
+    except Exception as e:
+        print(f"Dosya kaydedilirken hata oluştu: {e}")
+    page.close()
+
+def scrape_teamviewer(browser):
+    import os
+    page = browser.new_page()
+    url = "https://careers.teamviewer.com/jobs?query=working+student&type-of-job=Student"
+    output_file = "ui/public/teamviewer_filtered_jobs.csv"
+    
+    existing_jobs = {}
+    if os.path.exists(output_file):
+        with open(output_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if 'Direct Link' in row:
+                    existing_jobs[row['Direct Link']] = row
+
+    print("\n--- TeamViewer Adım 1: Arama sonuçlarındaki ilan linkleri toplanıyor ---")
+    all_job_links = []
+    try:
+        page.goto(url, wait_until='networkidle', timeout=60000)
+        page.wait_for_timeout(3000)
+        locators = page.locator('a[href*="/jobs/"]').all()
+        for loc in locators:
+            href = loc.get_attribute('href')
+            if href:
+                if href.startswith('/'):
+                    href = 'https://careers.teamviewer.com' + href
+                all_job_links.append(href)
+    except Exception as e:
+        print(f"Hata oluştu: {e}")
+
+    all_job_links = list(set(all_job_links))
+    print(f"Toplam {len(all_job_links)} benzersiz TeamViewer ilan linki bulundu.")
+    
+    print("\n--- TeamViewer Adım 2: İlan detayları çekiliyor ve filtreleniyor ---")
+    filtered_jobs = []
+    current_links = set(all_job_links)
+    
+    for i, link in enumerate(all_job_links, 1):
+        print(f"[{i}/{len(all_job_links)}] İnceleniyor: {link}")
+        if link in existing_jobs:
+            details = existing_jobs[link]
+            details['Status'] = 'Active'
+            details['DeleteCounter'] = '0'
+            filtered_jobs.append(details)
+            print(f"  -> GÜNCELLENDİ (Active): {details.get('Job Title', 'N/A')}")
+        else:
+            raw_details = extract_job_details(page, link)
+            if not raw_details:
+                continue
+            details = {
+                'Job Title': raw_details['title'],
+                'Date Posted': raw_details['date'],
+                'Location': raw_details['location'],
+                'Department': raw_details['department'],
+                'Language Req': raw_details['language'],
+                'Direct Link': raw_details['link'],
+                'Status': 'New',
+                'DeleteCounter': '0'
+            }
+            filtered_jobs.append(details)
+            print(f"  -> EKLENDİ (New): {details['Job Title']}")
+            
+    # Add back deleted jobs if they haven't expired
+    for link, details in existing_jobs.items():
+        if link not in current_links:
+            counter = int(details.get('DeleteCounter', '0')) + 1
+            if counter <= 4:
+                details['Status'] = 'Deleted'
+                details['DeleteCounter'] = str(counter)
+                filtered_jobs.append(details)
+                print(f"  -> SİLİNDİ (Deleted, Counter {counter}): {details.get('Job Title', 'N/A')}")
+            else:
+                print(f"  -> TAMAMEN KALDIRILDI: {details.get('Job Title', 'N/A')}")
+        
+    filtered_jobs.sort(key=lambda x: parse_date(x.get('Date Posted', 'N/A')), reverse=True)
+            
+    print("\n--- TeamViewer Adım 3: Sonuçlar CSV dosyasına kaydediliyor ---")
+    try:
+        with open(output_file, "w", newline='', encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Job Title", "Date Posted", "Location", "Department", "Language Req", "Direct Link", "Status", "DeleteCounter"])
+            for job in filtered_jobs:
+                writer.writerow([
+                    job.get('Job Title', ''), 
+                    job.get('Date Posted', ''), 
+                    job.get('Location', ''), 
+                    job.get('Department', ''), 
+                    job.get('Language Req', ''), 
+                    job.get('Direct Link', ''),
+                    job.get('Status', 'Active'),
+                    job.get('DeleteCounter', '0')
+                ])
+        print(f"İşlem başarıyla tamamlandı! '{output_file}' dosyasına kaydedildi.")
+    except Exception as e:
+        print(f"Dosya kaydedilirken hata oluştu: {e}")
+    page.close()
+
+def scrape_porsche(browser):
+    import os
+    page = browser.new_page()
+    url = "https://jobs.porsche.com/index.php?ac=search_result&search_criterion_channel%5B%5D=12&search_criterion_entry_level%5B%5D=4"
+    output_file = "ui/public/porsche_filtered_jobs.csv"
+    
+    existing_jobs = {}
+    if os.path.exists(output_file):
+        with open(output_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if 'Direct Link' in row:
+                    existing_jobs[row['Direct Link']] = row
+
+    print("\n--- Porsche Adım 1: Arama sonuçlarındaki ilan linkleri toplanıyor ---")
+    all_job_links = []
+    try:
+        page.goto(url, wait_until='networkidle', timeout=60000)
+        page.wait_for_timeout(4000)
+        locators = page.locator('a[href*="index.php?ac=jobad"]').all()
+        for loc in locators:
+            href = loc.get_attribute('href')
+            if href:
+                if not href.startswith('http'):
+                    href = 'https://jobs.porsche.com/' + href.lstrip('/')
+                all_job_links.append(href)
+    except Exception as e:
+        print(f"Hata oluştu: {e}")
+
+    all_job_links = list(set(all_job_links))
+    print(f"Toplam {len(all_job_links)} benzersiz Porsche ilan linki bulundu.")
+    
+    print("\n--- Porsche Adım 2: İlan detayları çekiliyor ve filtreleniyor ---")
+    filtered_jobs = []
+    current_links = set(all_job_links)
+    
+    for i, link in enumerate(all_job_links, 1):
+        print(f"[{i}/{len(all_job_links)}] İnceleniyor: {link}")
+        if link in existing_jobs:
+            details = existing_jobs[link]
+            details['Status'] = 'Active'
+            details['DeleteCounter'] = '0'
+            filtered_jobs.append(details)
+            print(f"  -> GÜNCELLENDİ (Active): {details.get('Job Title', 'N/A')}")
+        else:
+            raw_details = extract_job_details(page, link)
+            if not raw_details:
+                continue
+            details = {
+                'Job Title': raw_details['title'],
+                'Date Posted': raw_details['date'],
+                'Location': raw_details['location'],
+                'Department': raw_details['department'],
+                'Language Req': raw_details['language'],
+                'Direct Link': raw_details['link'],
+                'Status': 'New',
+                'DeleteCounter': '0'
+            }
+            filtered_jobs.append(details)
+            print(f"  -> EKLENDİ (New): {details['Job Title']}")
+            
+    # Add back deleted jobs if they haven't expired
+    for link, details in existing_jobs.items():
+        if link not in current_links:
+            counter = int(details.get('DeleteCounter', '0')) + 1
+            if counter <= 4:
+                details['Status'] = 'Deleted'
+                details['DeleteCounter'] = str(counter)
+                filtered_jobs.append(details)
+                print(f"  -> SİLİNDİ (Deleted, Counter {counter}): {details.get('Job Title', 'N/A')}")
+            else:
+                print(f"  -> TAMAMEN KALDIRILDI: {details.get('Job Title', 'N/A')}")
+        
+    filtered_jobs.sort(key=lambda x: parse_date(x.get('Date Posted', 'N/A')), reverse=True)
+            
+    print("\n--- Porsche Adım 3: Sonuçlar CSV dosyasına kaydediliyor ---")
+    try:
+        with open(output_file, "w", newline='', encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Job Title", "Date Posted", "Location", "Department", "Language Req", "Direct Link", "Status", "DeleteCounter"])
+            for job in filtered_jobs:
+                writer.writerow([
+                    job.get('Job Title', ''), 
+                    job.get('Date Posted', ''), 
+                    job.get('Location', ''), 
+                    job.get('Department', ''), 
+                    job.get('Language Req', ''), 
+                    job.get('Direct Link', ''),
+                    job.get('Status', 'Active'),
+                    job.get('DeleteCounter', '0')
+                ])
+        print(f"İşlem başarıyla tamamlandı! '{output_file}' dosyasına kaydedildi.")
+    except Exception as e:
+        print(f"Dosya kaydedilirken hata oluştu: {e}")
+    page.close()
+
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Job Scraper for SAP, TeamViewer and Porsche")
+    parser.add_argument('company', nargs='?', default='all', choices=['sap', 'teamviewer', 'porsche', 'all'], help="Company to scrape: 'sap', 'teamviewer', 'porsche' or 'all'")
+    args = parser.parse_args()
+
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    print("SAP Job Scraper başlatılıyor...")
+    print(f"Scraper başlatılıyor... Hedef: {args.company}")
     
     with sync_playwright() as p:
-        # Tarayıcıyı başlatıyoruz. Ekranda tarayıcıyı görmek isterseniz headless=False yapabilirsiniz.
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        
-        base_url = "https://jobs.sap.com/search/?q=Working+student&optionsFacetsDD_country=DE&startrow={}&scrollToTable=true"
-        all_job_links = []
-        
-        print("\n--- Adım 1: Arama sonuçlarındaki ilan linkleri toplanıyor ---")
-        
-        for startrow in range(0, 76, 25): # 0, 25, 50, 75
-            url = base_url.format(startrow)
-            print(f"Sayfa taranıyor: {url}")
-            
-            try:
-                page.goto(url, wait_until='domcontentloaded', timeout=60000)
-                page.wait_for_timeout(5000) # İlanların Javascript ile DOM'a yerleşmesini bekle
-                
-                # İlan linklerini topla. SAP sitesinde ilan linkleri genelde "a.jobTitle-link" class'ına sahiptir.
-                links = page.locator('a.jobTitle-link').evaluate_all('elements => elements.map(e => e.href)')
-                
-                if not links:
-                    print("İlan bulunamadı.")
-                else:
-                    all_job_links.extend(links)
-                    
-            except PlaywrightTimeoutError:
-                print(f"Sayfa yüklenirken zaman aşımı oldu: {url}")
-            except Exception as e:
-                print(f"Linkler toplanırken beklenmedik bir hata oluştu: {e}")
-                
-        # Olası tekrarlı çekimleri önlemek için linkleri benzersiz (unique) hale getiriyoruz
-        all_job_links = list(set(all_job_links))
-        print(f"Toplam {len(all_job_links)} benzersiz ilan linki bulundu.")
-        
-        print("\n--- Adım 2: İlan detayları çekiliyor ve filtreleniyor ---")
-        filtered_jobs = []
-        
-        for i, link in enumerate(all_job_links, 1):
-            print(f"[{i}/{len(all_job_links)}] İnceleniyor...")
-            details = extract_job_details(page, link)
-            
-            if not details:
-                continue
-                
-            # Filtreleme kaldırıldı, tüm ilanlar ekleniyor
-            filtered_jobs.append(details)
-            print(f"  -> EKLENDİ: {details['title']} | Tarih: {details['date']}")
-            
-        # Sonuçları yayınlanma tarihine göre (en yeni en üstte olacak şekilde) sıralama
-        filtered_jobs.sort(key=lambda x: parse_date(x['date']), reverse=True)
-                
-        # Bulunan sonuçları CSV dosyasına yazdırma
-        print("\n--- Adım 3: Sonuçlar CSV dosyasına kaydediliyor ---")
-        output_file = "ui/public/sap_filtered_jobs.csv"
-        try:
-            with open(output_file, "w", newline='', encoding="utf-8") as f:
-                writer = csv.writer(f)
-                # İstenilen formatta sütun başlıkları
-                writer.writerow(["Job Title", "Date Posted", "Location", "Department", "Language Req", "Direct Link"])
-                for job in filtered_jobs:
-                    writer.writerow([
-                        job['title'], 
-                        job['date'], 
-                        job['location'], 
-                        job['department'],
-                        job['language'], 
-                        job['link']
-                    ])
-            print(f"İşlem başarıyla tamamlandı! Kriterlere uyan {len(filtered_jobs)} adet ilan '{output_file}' dosyasına kaydedildi.")
-        except Exception as e:
-            print(f"Dosya kaydedilirken hata oluştu: {e}")
-            
-        # İşimiz bitince tarayıcıyı kapatıyoruz
+        if args.company in ('sap', 'all'):
+            scrape_sap(browser)
+        if args.company in ('teamviewer', 'all'):
+            scrape_teamviewer(browser)
+        if args.company in ('porsche', 'all'):
+            scrape_porsche(browser)
         browser.close()
 
 if __name__ == "__main__":

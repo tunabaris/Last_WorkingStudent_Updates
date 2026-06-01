@@ -9,22 +9,54 @@ const mainTitle = document.getElementById('mainTitle')
 const tabBtns = document.querySelectorAll('.tab-btn')
 
 let allJobs = []
-let currentCompany = 'sap'
+let currentCompany = 'all'
+
+const companyNames = { sap: 'SAP', teamviewer: 'TeamViewer', porsche: 'Porsche' }
 
 async function init() {
   try {
-    const csvFile = currentCompany === 'sap' ? '/sap_filtered_jobs.csv' : '/teamviewer_filtered_jobs.csv'
-    const response = await fetch(csvFile)
-    const csvText = await response.text()
-    
-    Papa.parse(csvText, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (results) => {
-        allJobs = results.data
-        renderJobs(allJobs)
+    if (currentCompany === 'all') {
+      const companies = ['sap', 'teamviewer', 'porsche']
+      allJobs = []
+      
+      for (const comp of companies) {
+        try {
+          const response = await fetch(`/${comp}_filtered_jobs.csv`)
+          if (!response.ok) continue
+          const csvText = await response.text()
+          Papa.parse(csvText, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (results) => {
+              const data = results.data.map(job => ({ ...job, Company: companyNames[comp] }))
+              allJobs = allJobs.concat(data)
+            }
+          })
+        } catch (e) {}
       }
-    })
+      
+      // Sort by date descending
+      allJobs.sort((a, b) => {
+        const dateA = a['Date Posted'] && a['Date Posted'] !== 'N/A' ? new Date(a['Date Posted']).getTime() : 0
+        const dateB = b['Date Posted'] && b['Date Posted'] !== 'N/A' ? new Date(b['Date Posted']).getTime() : 0
+        return (dateB || 0) - (dateA || 0)
+      })
+      
+      renderJobs(allJobs)
+    } else {
+      const csvFile = `/${currentCompany}_filtered_jobs.csv`
+      const response = await fetch(csvFile)
+      const csvText = await response.text()
+      
+      Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          allJobs = results.data
+          renderJobs(allJobs)
+        }
+      })
+    }
   } catch (error) {
     jobsGrid.innerHTML = `<p style="color: #ef4444;">Error loading jobs: ${error.message}</p>`
     jobCount.textContent = 'Error'
@@ -79,6 +111,7 @@ function renderJobs(jobs) {
       </div>
       
       <div class="tags">
+        ${job['Company'] ? `<span class="tag" style="background: rgba(59,130,246,0.2); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3);">${job['Company']}</span>` : ''}
         ${job['Language Req'] && job['Language Req'] !== 'Not specified' && job['Language Req'] !== 'N/A' 
           ? job['Language Req'].split(',').map(lang => `<span class="tag">${lang.trim()}</span>`).join('') 
           : ''}
@@ -118,8 +151,12 @@ tabBtns.forEach(btn => {
     // Update UI title
     if (currentCompany === 'sap') {
       mainTitle.textContent = 'SAP Opportunities'
-    } else {
+    } else if (currentCompany === 'teamviewer') {
       mainTitle.textContent = 'TeamViewer Opportunities'
+    } else if (currentCompany === 'porsche') {
+      mainTitle.textContent = 'Porsche Opportunities'
+    } else {
+      mainTitle.textContent = 'All Opportunities'
     }
     
     // Re-fetch and render jobs

@@ -7,12 +7,16 @@ const scraperPlugin = () => {
     name: 'scraper-plugin',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (req.url === '/api/run-scraper' && req.method === 'POST') {
+        if (req.url.startsWith('/api/run-scraper') && req.method === 'POST') {
           res.setHeader('Content-Type', 'application/json')
           // Assuming vite is running in ui/ directory
           const cwd = path.resolve(process.cwd(), '..')
           
-          exec('python scraper.py', { cwd }, (error, stdout, stderr) => {
+          // Parse query string for company parameter
+          const urlObj = new URL(req.url, `http://${req.headers.host}`)
+          const company = urlObj.searchParams.get('company') || 'all'
+          
+          exec(`python scraper.py ${company}`, { cwd }, (error, stdout, stderr) => {
             if (error) {
               console.error(`Scraper error: ${error.message}`)
               res.statusCode = 500

@@ -97,8 +97,8 @@ def extract_job_details(page, url):
         try:
             languages = []
             # İngilizce gereksinimi kontrolü
-            if re.search(r'(fluent|excellent|good|proficient|strong|business).*english', body_text, re.IGNORECASE) or \
-               re.search(r'english.*(fluent|excellent|good|proficient|strong|business)', body_text, re.IGNORECASE):
+            if re.search(r'(fluent|fluency|excellent|good|proficient|proficiency|strong|business|c1|c2|b2|b1).*english', body_text, re.IGNORECASE) or \
+               re.search(r'english.*(fluent|fluency|excellent|good|proficient|proficiency|strong|business|c1|c2|b2|b1)', body_text, re.IGNORECASE):
                 languages.append('English')
                 
             # Almanca gereksinimi kontrolü
@@ -107,8 +107,8 @@ def extract_job_details(page, url):
             is_german_optional = re.search(german_optional_pattern, body_text, re.IGNORECASE)
             
             # Check if German is mentioned as a requirement
-            is_german_required = re.search(r'(fluent|excellent|good|proficient|strong|business).*german', body_text, re.IGNORECASE) or \
-                                 re.search(r'german.*(fluent|excellent|good|proficient|strong|business)', body_text, re.IGNORECASE)
+            is_german_required = re.search(r'(fluent|fluency|excellent|good|proficient|proficiency|strong|business|c1|c2|b2|b1).*german', body_text, re.IGNORECASE) or \
+                                 re.search(r'german.*(fluent|fluency|excellent|good|proficient|proficiency|strong|business|c1|c2|b2|b1)', body_text, re.IGNORECASE)
             
             if is_german_required and not is_german_optional:
                 languages.append('German')

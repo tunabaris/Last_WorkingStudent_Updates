@@ -34,5 +34,10 @@ const scraperPlugin = () => {
 }
 
 export default defineConfig({
-  plugins: [scraperPlugin()]
+  plugins: [scraperPlugin()],
+  server: {
+    watch: {
+      ignored: ['**/public/**/*.csv']
+    }
+  }
 })

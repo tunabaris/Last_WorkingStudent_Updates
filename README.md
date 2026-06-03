@@ -23,10 +23,9 @@ If you want to run it natively, you will need:
 ### 1. Download the Repository
 To get started, clone the repository to your local machine using Git:
 ```bash
-git clone https://github.com/your-username/your-repo-name.git
-cd your-repo-name
+git clone https://github.com/tunabaris/Last_WorkingStudent_Updates.git
+cd Last_WorkingStudent_Updates
 ```
-*(Note: Replace the URL with the actual repository URL)*
 
 ### Option A: Run with Docker (Recommended)
 Running with Docker is the easiest method, as it automatically installs all Python and Node.js dependencies, including the required Playwright browser binaries.

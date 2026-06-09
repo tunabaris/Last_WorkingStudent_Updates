@@ -97,18 +97,19 @@ def extract_job_details(page, url):
         try:
             languages = []
             # İngilizce gereksinimi kontrolü
-            if re.search(r'(fluent|fluency|excellent|good|proficient|proficiency|strong|business|c1|c2|b2|b1).*english', body_text, re.IGNORECASE) or \
-               re.search(r'english.*(fluent|fluency|excellent|good|proficient|proficiency|strong|business|c1|c2|b2|b1)', body_text, re.IGNORECASE):
+            lang_level_pattern = r'(fluent|fluency|excellent|good|gute|sehr gute|fließend|verhandlungssicher|proficient|proficiency|strong|business|c1|c2|b2|b1)'
+            if re.search(lang_level_pattern + r'.*(english|englisch)', body_text, re.IGNORECASE) or \
+               re.search(r'(english|englisch).*' + lang_level_pattern, body_text, re.IGNORECASE):
                 languages.append('English')
                 
             # Almanca gereksinimi kontrolü
             # Check if German is mentioned as optional / a plus
-            german_optional_pattern = r'(german\s*(?:as\s*a|is\s*a|is\s*an)?\s*(?:plus|advantage|asset|nice\s*to\s*have))|((?:plus|advantage|asset|nice\s*to\s*have)\s*(?::|is)?\s*german)'
+            german_optional_pattern = r'((german|deutsch)\s*(?:as\s*a|is\s*a|is\s*an)?\s*(?:plus|advantage|asset|nice\s*to\s*have|von\s*vorteil))|((?:plus|advantage|asset|nice\s*to\s*have|von\s*vorteil)\s*(?::|is)?\s*(german|deutsch))'
             is_german_optional = re.search(german_optional_pattern, body_text, re.IGNORECASE)
             
             # Check if German is mentioned as a requirement
-            is_german_required = re.search(r'(fluent|fluency|excellent|good|proficient|proficiency|strong|business|c1|c2|b2|b1).*german', body_text, re.IGNORECASE) or \
-                                 re.search(r'german.*(fluent|fluency|excellent|good|proficient|proficiency|strong|business|c1|c2|b2|b1)', body_text, re.IGNORECASE)
+            is_german_required = re.search(lang_level_pattern + r'.*(german|deutsch)', body_text, re.IGNORECASE) or \
+                                 re.search(r'(german|deutsch).*' + lang_level_pattern, body_text, re.IGNORECASE)
             
             if is_german_required and not is_german_optional:
                 languages.append('German')

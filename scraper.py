@@ -64,9 +64,10 @@ def extract_job_details(page, url):
             
         # 3. Lokasyon (Location)
         try:
-            loc_locator = page.locator('span.jobGeoLocation, span[data-customview="location"]')
+            loc_locator = page.locator('span.jobGeoLocation, span[data-customview="location"], .job-location, .location')
             if loc_locator.count() > 0:
                 location = loc_locator.first.inner_text().strip()
+                location = re.sub(r'^(Location|Lokasyon):\s*', '', location, flags=re.IGNORECASE).strip()
             else:
                 location = "N/A"
         except:
@@ -79,10 +80,10 @@ def extract_job_details(page, url):
             
         # 4. Departman (Department)
         try:
-            dept_locator = page.locator('span.department, span:has-text("Department:")')
+            dept_locator = page.locator('span.department, span:has-text("Department:"), .category')
             if dept_locator.count() > 0:
                 department = dept_locator.first.inner_text().strip()
-                department = re.sub(r'^Department:\s*', '', department, flags=re.IGNORECASE)
+                department = re.sub(r'^(Department|Category):\s*', '', department, flags=re.IGNORECASE).strip()
             else:
                 department = "N/A"
         except:
@@ -379,10 +380,118 @@ def scrape_porsche(browser):
         print(f"Dosya kaydedilirken hata oluştu: {e}")
     page.close()
 
+def scrape_allianz(browser):
+    import os
+    page = browser.new_page()
+    url = "https://careers.allianz.com/global/en/search-results?keywords=Working%20Student%20Germany"
+    output_file = "ui/public/allianz_filtered_jobs.csv"
+    
+    existing_jobs = {}
+    if os.path.exists(output_file):
+        with open(output_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if 'Direct Link' in row:
+                    existing_jobs[row['Direct Link']] = row
+
+    print("\n--- Allianz Adım 1: Arama sonuçlarındaki ilan linkleri toplanıyor ---")
+    all_job_links = []
+    try:
+        # Allianz uses from=0, from=10, from=20 for pagination
+        for offset in range(0, 100, 10):
+            page_url = f"{url}&from={offset}"
+            print(f"Sayfa taranıyor: {page_url}")
+            page.goto(page_url, wait_until='networkidle', timeout=60000)
+            page.wait_for_timeout(4000)
+            
+            locators = page.locator('a[href*="/job/"]').all()
+            page_links = []
+            for loc in locators:
+                href = loc.get_attribute('href')
+                if href and '/job/' in href and 'hvhapply' not in href and 'jobcart' not in href and 'job-fields' not in href:
+                    if not href.startswith('http'):
+                        href = 'https://careers.allianz.com' + href
+                    page_links.append(href)
+            
+            # If no valid job links are found on this page, assume we reached the end
+            if not page_links:
+                break
+                
+            all_job_links.extend(page_links)
+    except Exception as e:
+        print(f"Hata oluştu: {e}")
+
+    all_job_links = list(set(all_job_links))
+    print(f"Toplam {len(all_job_links)} benzersiz Allianz ilan linki bulundu.")
+    
+    print("\n--- Allianz Adım 2: İlan detayları çekiliyor ve filtreleniyor ---")
+    filtered_jobs = []
+    current_links = set(all_job_links)
+    
+    for i, link in enumerate(all_job_links, 1):
+        print(f"[{i}/{len(all_job_links)}] İnceleniyor: {link}")
+        if link in existing_jobs:
+            details = existing_jobs[link]
+            details['Status'] = 'Active'
+            details['DeleteCounter'] = '0'
+            filtered_jobs.append(details)
+            print(f"  -> GÜNCELLENDİ (Active): {details.get('Job Title', 'N/A')}")
+        else:
+            raw_details = extract_job_details(page, link)
+            if not raw_details:
+                continue
+            details = {
+                'Job Title': raw_details['title'],
+                'Date Posted': raw_details['date'],
+                'Location': raw_details['location'],
+                'Department': raw_details['department'],
+                'Language Req': raw_details['language'],
+                'Direct Link': raw_details['link'],
+                'Status': 'New',
+                'DeleteCounter': '0'
+            }
+            filtered_jobs.append(details)
+            print(f"  -> EKLENDİ (New): {details['Job Title']}")
+            
+    # Add back deleted jobs if they haven't expired
+    for link, details in existing_jobs.items():
+        if link not in current_links:
+            counter = int(details.get('DeleteCounter', '0')) + 1
+            if counter <= 4:
+                details['Status'] = 'Deleted'
+                details['DeleteCounter'] = str(counter)
+                filtered_jobs.append(details)
+                print(f"  -> SİLİNDİ (Deleted, Counter {counter}): {details.get('Job Title', 'N/A')}")
+            else:
+                print(f"  -> TAMAMEN KALDIRILDI: {details.get('Job Title', 'N/A')}")
+        
+    filtered_jobs.sort(key=lambda x: parse_date(x.get('Date Posted', 'N/A')), reverse=True)
+            
+    print("\n--- Allianz Adım 3: Sonuçlar CSV dosyasına kaydediliyor ---")
+    try:
+        with open(output_file, "w", newline='', encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Job Title", "Date Posted", "Location", "Department", "Language Req", "Direct Link", "Status", "DeleteCounter"])
+            for job in filtered_jobs:
+                writer.writerow([
+                    job.get('Job Title', ''), 
+                    job.get('Date Posted', ''), 
+                    job.get('Location', ''), 
+                    job.get('Department', ''), 
+                    job.get('Language Req', ''), 
+                    job.get('Direct Link', ''),
+                    job.get('Status', 'Active'),
+                    job.get('DeleteCounter', '0')
+                ])
+        print(f"İşlem başarıyla tamamlandı! '{output_file}' dosyasına kaydedildi.")
+    except Exception as e:
+        print(f"Dosya kaydedilirken hata oluştu: {e}")
+    page.close()
+
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Job Scraper for SAP, TeamViewer and Porsche")
-    parser.add_argument('company', nargs='?', default='all', choices=['sap', 'teamviewer', 'porsche', 'all'], help="Company to scrape: 'sap', 'teamviewer', 'porsche' or 'all'")
+    parser = argparse.ArgumentParser(description="Job Scraper for SAP, TeamViewer, Porsche and Allianz")
+    parser.add_argument('company', nargs='?', default='all', choices=['sap', 'teamviewer', 'porsche', 'allianz', 'all'], help="Company to scrape: 'sap', 'teamviewer', 'porsche', 'allianz' or 'all'")
     args = parser.parse_args()
 
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -396,6 +505,8 @@ def main():
             scrape_teamviewer(browser)
         if args.company in ('porsche', 'all'):
             scrape_porsche(browser)
+        if args.company in ('allianz', 'all'):
+            scrape_allianz(browser)
         browser.close()
 
 if __name__ == "__main__":

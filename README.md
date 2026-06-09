@@ -1,6 +1,6 @@
-# Job Scraper (SAP, TeamViewer, Porsche)
+# Job Scraper (SAP, TeamViewer, Porsche, Allianz)
 
-This project is a web-based job scraping tool that extracts "Working Student" job postings from the career sites of **SAP**, **TeamViewer**, and **Porsche**. It consists of a **Python Playwright** backend to perform the scraping, and a **Vite (Node.js)** frontend UI to view and trigger the scraping process.
+This project is a web-based job scraping tool that extracts "Working Student" job postings from the career sites of **SAP**, **TeamViewer**, **Porsche**, and **Allianz**. It consists of a **Python Playwright** backend to perform the scraping, and a **Vite (Node.js)** frontend UI to view and trigger the scraping process.
 
 ## Features
 - **Automated Scraping:** Uses Playwright to navigate career sites, extract job details, and bypass dynamic Javascript rendering.
@@ -81,5 +81,5 @@ Open your browser and navigate to the URL provided in your terminal (usually `ht
 
 ## Usage
 - Open the UI in your browser.
-- Browse the latest scraped jobs for SAP, TeamViewer, and Porsche.
+- Browse the latest scraped jobs for SAP, TeamViewer, Porsche, and Allianz.
 - To refresh the data, click the **"Run Scraper"** button in the UI. This will trigger the backend Python script to fetch the latest jobs and update the local CSV files.

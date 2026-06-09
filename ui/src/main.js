@@ -11,12 +11,12 @@ const tabBtns = document.querySelectorAll('.tab-btn')
 let allJobs = []
 let currentCompany = 'all'
 
-const companyNames = { sap: 'SAP', teamviewer: 'TeamViewer', porsche: 'Porsche' }
+const companyNames = { sap: 'SAP', teamviewer: 'TeamViewer', porsche: 'Porsche', allianz: 'Allianz' }
 
 async function init() {
   try {
     if (currentCompany === 'all') {
-      const companies = ['sap', 'teamviewer', 'porsche']
+      const companies = ['sap', 'teamviewer', 'porsche', 'allianz']
       allJobs = []
       
       for (const comp of companies) {
@@ -155,6 +155,8 @@ tabBtns.forEach(btn => {
       mainTitle.textContent = 'TeamViewer Opportunities'
     } else if (currentCompany === 'porsche') {
       mainTitle.textContent = 'Porsche Opportunities'
+    } else if (currentCompany === 'allianz') {
+      mainTitle.textContent = 'Allianz Opportunities'
     } else {
       mainTitle.textContent = 'All Opportunities'
     }
